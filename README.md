@@ -1,3 +1,3 @@
-# Back-End Summative (PRODUCTION)
+# Back-End Summative (DEVELOPMENT)
 
-Production of Back-End for Summative web-application
+Development of Back-End for Summative web-application
