@@ -136,6 +136,7 @@ def register():
                         }
             
             add_user(user_data)
+            del user_data["password"]
             return json_util.dumps({"user" : user_data, "accessToken": access_token, "refreshToken": refresh_token}), 201
     return jsonify({"error": "bad inputs"}), 400
 
@@ -153,6 +154,7 @@ def users(user_id):
     result = decode_token(auth_token)
     if result == None:
         user_data = db["User"].find_one({"id": user_id})
+        del user_data["password"]
         return json_util.dumps(user_data)
     else:
         return result
@@ -167,7 +169,11 @@ def login():
         #FIX THIS RAW PASSWORD IS EXPOSED
         if request_password == body["password"]:
             account = search_db({"email": body["email"]})
-            return json_util.dumps({"user": account, "accessToken": create_new_token(str(account["id"]))[0]}), 201
+
+
+            response = {"user": account, "accessToken": create_new_token(str(account["id"]))[0]}
+            del response['user']["password"]
+            return json_util.dumps(response), 201
     return jsonify({"error": "invalid login"}), 401
 
 #SEE HOW THIS WILL WORK WITH POST OR SMMTHING
@@ -190,7 +196,9 @@ def refresh():
     if search != None:
         access, refresh = create_new_token(search["id"])
         db["User"].update_one({"id": search["id"]},{"$set": {"refreshToken": refresh}})
-        return json_util.dumps({"user" : db["User"].find_one({"id": search["id"]}),"refreshToken": refresh, "accessToken": access}), 200
+        response = db["User"].find_one({"id": search["id"]})
+        del response["password"]
+        return json_util.dumps({"user" : response, "refreshToken": refresh, "accessToken": access}), 200
     return jsonify({"error": "could not find user"}), 401
 
 @app.route("/forgot", methods=["POST"])
