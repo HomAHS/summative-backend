@@ -84,11 +84,11 @@ def decode_token(token):
         jwt.decode(token, auth_key, algorithms=["HS256"])
         return None
     except jwt.exceptions.InvalidTokenError:
-        return jsonify({'error': 'Invalid token!'}), 401
+        return jsonify({'message': 'Invalid token!'}), 401
     except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token has expired!'}), 401
+        return jsonify({'message': 'Token has expired!'}), 401
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'message': str(e)}), 400
 
 
 def send_email(email):
@@ -111,9 +111,9 @@ def send_email(email):
         message = f"From: SUMMATIVE\nTo: {to_email}\nSubject: password reset link!\n\n{content}"
         try:
             smtp.sendmail(from_email, to_email, message)
-            return jsonify({"message": "succsues!"}), 200
+            return jsonify({"message": "email sent!"}), 200
         except:
-            return jsonify({"error": "invalid email"}), 401
+            return jsonify({"message": "invalid email"}), 401
 
 
 #creates a new user
@@ -138,7 +138,7 @@ def register():
             add_user(user_data)
             del user_data["password"]
             return json_util.dumps({"user" : user_data, "accessToken": access_token, "refreshToken": refresh_token}), 201
-    return jsonify({"error": "bad inputs"}), 400
+    return jsonify({"message": "bad inputs"}), 400
 
 
 #WORK HERE
@@ -148,7 +148,7 @@ def users(user_id):
     try:
         auth_token = request.headers.get("Authorization").split("Bearer ")[1]
     except:
-        return {"error": "authorization header missing"}, 401
+        return {"message": "authorization header missing"}, 401
     
 
     result = decode_token(auth_token)
@@ -174,7 +174,7 @@ def login():
             response = {"user": account, "accessToken": create_new_token(str(account["id"]))[0]}
             del response['user']["password"]
             return json_util.dumps(response), 201
-    return jsonify({"error": "invalid login"}), 401
+    return jsonify({"message": "invalid login"}), 401
 
 #SEE HOW THIS WILL WORK WITH POST OR SMMTHING
 @app.route("/refresh", methods=["GET"])
@@ -182,12 +182,12 @@ def refresh():
     try:
         re_token = request.headers.get("Authorization").split("Bearer ")[1]
     except:
-        return {"error": "authorization header missing"}, 401
+        return {"message": "authorization header missing"}, 401
     
     try:
         jwt.decode(re_token, refresh_key, algorithms=["HS256"])
     except:
-        return jsonify({"error": "invalid token"})
+        return jsonify({"message": "invalid token"})
 
     try:
         search = db["User"].find_one({"refreshToken": re_token})
@@ -199,7 +199,7 @@ def refresh():
         response = db["User"].find_one({"id": search["id"]})
         del response["password"]
         return json_util.dumps({"user" : response, "refreshToken": refresh, "accessToken": access}), 200
-    return jsonify({"error": "could not find user"}), 401
+    return jsonify({"message": "could not find user"}), 401
 
 @app.route("/forgot", methods=["POST"])
 def forgot():
@@ -209,7 +209,7 @@ def forgot():
         status = send_email(post["email"])
         return status
     except:
-        return jsonify({"error": "email does not exist!"}), 401
+        return jsonify({"message": "email does not exist!"}), 401
 
 
 @app.route("/reset", methods=["POST"])
