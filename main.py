@@ -6,13 +6,14 @@ from flask_cors import CORS
 import jwt
 import datetime
 from bson import json_util
+from bson.objectid import ObjectId
 from smtplib import SMTP
 import uuid
 
-#STILL NEED TO ADD ERROR HANDLING ON FAILED
+#CHECK THE _ID SHIT LATER
+#FIX TS DONT FORGET ITS VERY IMPORTANT FUCKEr
 key = b'k8SYN9cfkSbhdUXivIjePBOFehJA7-yscCBRUH-zLvQ='
 crypter = Fernet(key)
-
 
 auth_key = "ls23ss345klma1hdu10sd7sjf"
 refresh_key = "qsidwo3h3idjkq0wudetdw"
@@ -81,8 +82,8 @@ def update_token(id):
 def decode_token(token):
     try:
         # Decode the JWT token
-        jwt.decode(token, auth_key, algorithms=["HS256"])
-        return None
+        token_data = jwt.decode(token, auth_key, algorithms=["HS256"])
+        return [None, token_data]
     except jwt.exceptions.InvalidTokenError:
         return jsonify({'message': 'Invalid token!'}), 401
     except jwt.ExpiredSignatureError:
@@ -123,26 +124,28 @@ def register():
         if check_email(request.json) == False:
             hashed_password = crypter.encrypt(request.json["password"].encode())
             test_id = str(uuid.uuid4())
-            access_token, refresh_token = create_new_token(test_id)
             user_data = {
-                        "id": test_id,                
+              
                         "name" : request.json["name"],
                         "email": request.json["email"],
                         "password": hashed_password.decode(), #hashed
                         "admin": False,
                         "ban": False,
                         "token": str(uuid.uuid4()),#for reset passworf,
-                        "refreshToken": refresh_token
+                        "refreshToken": ""
                         }
             
             add_user(user_data)
-            del user_data["password"]
+            person = db["User"].find_one({"email": request.json["email"]})
+            access_token, refresh_token = create_new_token(str(person["_id"]))
+            db["User"].update_one({"_id" : person["_id"]}, {"$set": {"refreshToken": refresh_token}})
+            person = db["User"].find_one({"_id": person["_id"]})
+            del person["password"]
             return json_util.dumps({"user" : user_data, "accessToken": access_token, "refreshToken": refresh_token}), 201
     return jsonify({"message": "bad inputs"}), 400
 
 
-#WORK HERE
-#TEST THIS ON API
+#THIS SHIT IS MESSY ASF FIX IT LATER
 @app.route("/users/<user_id>", methods={"GET"})
 def users(user_id):
     try:
@@ -152,12 +155,22 @@ def users(user_id):
     
 
     result = decode_token(auth_token)
-    if result == None:
-        user_data = db["User"].find_one({"id": user_id})
-        del user_data["password"]
-        return json_util.dumps(user_data)
-    else:
-        return result
+
+
+    #RIGHT HERE IF YOU DFONT SEE THIS SHIT
+    try:
+        if result[0] == None:
+            object_id = result[1].get("id")
+            if object_id == user_id:
+                user_data = db["User"].find_one({"_id": ObjectId(result[1].get("id"))})
+                del user_data["password"]
+                return json_util.dumps(user_data)
+            else:
+                return jsonify({"message": "id dont match"})
+        else:
+            return result
+    except:
+        return jsonify({"message": "bad id inside token"})
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -171,7 +184,7 @@ def login():
             account = search_db({"email": body["email"]})
 
 
-            response = {"user": account, "accessToken": create_new_token(str(account["id"]))[0]}
+            response = {"user": account, "accessToken": create_new_token(str(account["_id"]))[0]}
             del response['user']["password"]
             return json_util.dumps(response), 201
     return jsonify({"message": "invalid login"}), 401
@@ -194,9 +207,9 @@ def refresh():
     except:
         return jsonify({"error": "refreshToken attribute does not exist"}), 401
     if search != None:
-        access, refresh = create_new_token(search["id"])
-        db["User"].update_one({"id": search["id"]},{"$set": {"refreshToken": refresh}})
-        response = db["User"].find_one({"id": search["id"]})
+        access, refresh = create_new_token(str(search["_id"]))
+        db["User"].update_one({"_id": search["_id"]},{"$set": {"refreshToken": refresh}})
+        response = db["User"].find_one({"_id": search["_id"]})
         del response["password"]
         return json_util.dumps({"user" : response, "refreshToken": refresh, "accessToken": access}), 200
     return jsonify({"message": "could not find user"}), 401
@@ -224,8 +237,8 @@ def reset():
         user = db["User"].find_one({"token": post["token"]})
         if user != None:
             new_token = str(uuid.uuid4())
-            db["User"].update_one({"id": user["id"]}, {"$set": {"password": password}})
-            db["User"].update_one({"id": user["id"]}, {"$set": {"token": new_token}})
+            db["User"].update_one({"_id": user["_id"]}, {"$set": {"password": password}})
+            db["User"].update_one({"_id": user["_id"]}, {"$set": {"token": new_token}})
             return jsonify({"message": "password changed!"}), 200
     except Exception as e:
         print(e)
