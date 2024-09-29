@@ -9,49 +9,53 @@ from bson import json_util
 from bson.objectid import ObjectId
 from smtplib import SMTP
 import uuid
+import sys
 
-#CHECK THE _ID SHIT LATER
-#FIX TS DONT FORGET ITS VERY IMPORTANT FUCKEr
-key = b'k8SYN9cfkSbhdUXivIjePBOFehJA7-yscCBRUH-zLvQ='
+#NOTES FOR NEXT TIME
+#1. REMOVE SENSTIVE KEY VALUES FROM USER OBJECT ON RETURN FROM API
+#2. PROB SHOULD ADD SMTP LOGIN TO .ENV FILE
+#3. ADD /users AND CHECK ACCESS TOKEN FOR ADMIN
+#4. ADD A PATCH AND DELETE ON /user/:id AND CHECK FOR ADMIN
+
+#THE .ENV FILE KEY ORDER
+#encryotion key
+#acces token key
+#refersh token key
+#encrypted password
+#mongo db link
+
+all_passwords = None
+
+try:
+    with open(".env", "r") as f:
+        all_passwords = f.read().split("\n")
+except:
+    print("failed to read .env file")
+    sys.exit()
+
+key = all_passwords[0].encode()
 crypter = Fernet(key)
 
-auth_key = "ls23ss345klma1hdu10sd7sjf"
-refresh_key = "qsidwo3h3idjkq0wudetdw"
+auth_key = all_passwords[1]
+refresh_key = all_passwords[2]
 
 app = Flask(__name__)
 CORS(app)
 
 #reads the password from the textfile and decrypts it
 def decrypt_password():
-    with open("dbpassword.txt", "r") as f:
-        encryped_password = f.read().encode()
+    encryped_password = all_passwords[3].encode()
 
     return crypter.decrypt(encryped_password).decode()
 
-#adds a new user and encrypts password to the data base
-def add_user(json):
-    user = db["User"]
-    user.insert_one(json)
-
-#removes a user from the data base
-def remove_user(json):
-    user = db["User"]
-    user.delete_one(json)
 
 #logins into database server and selects the summative database to search
 def login_database():
     password = quote_plus(decrypt_password())
-    client = MongoClient(f"mongodb+srv://de3p:{password}@cluster0.x8yve.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    split_db_url = all_passwords[4].split("!")
+    client = MongoClient(split_db_url[0] + password + split_db_url[1])
     db = client["Summative"]
     return db
-
-#used for calulating to index
-def count_db(json):
-    return db["User"].find(json)
-
-#searches database
-def search_db(json):
-    return db["User"].find_one(json)
 
 #checks if email exists or not
 def check_email(json):
@@ -63,7 +67,7 @@ def check_email(json):
 #makes sure that that input arent left blank
 #ADD SOME MORE INPUT SANTIZATION HERE
 def check_inputs(json):
-    if json["email"] or json["password"] != "":
+    if json["email"] and json["password"] and json["name"] != "":
         return True
     return False
 
@@ -72,11 +76,6 @@ def create_new_token(id):
     refresh_token = jwt.encode({"id": id, "exp": datetime.datetime.utcnow() + datetime.timedelta(days=30)}, refresh_key, algorithm="HS256")
     access_token = jwt.encode({"id": id, "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)}, auth_key, algorithm="HS256")
     return access_token, refresh_token
-
-#updates access token in the database for the user
-def update_token(id):
-    token = create_new_token(id)[0]
-    db["User"].update_one({"id": id}, {"$set": {"token": token}})
 
 #check for if the token is valid
 def decode_token(token):
@@ -104,7 +103,6 @@ def send_email(email):
     content = f"Heres the link to reseting your password: http://localhost:3333/reset?token={token}"
     to_email = email
 
-
     with SMTP(server, port) as smtp:
         smtp.ehlo()
         smtp.starttls()
@@ -120,29 +118,31 @@ def send_email(email):
 #creates a new user
 @app.route("/register", methods=["POST"])
 def register():
-    if check_inputs(request.json):
-        if check_email(request.json) == False:
-            hashed_password = crypter.encrypt(request.json["password"].encode())
-            test_id = str(uuid.uuid4())
-            user_data = {
-              
-                        "name" : request.json["name"],
-                        "email": request.json["email"],
-                        "password": hashed_password.decode(), #hashed
-                        "admin": False,
-                        "ban": False,
-                        "token": str(uuid.uuid4()),#for reset passworf,
-                        "refreshToken": ""
-                        }
-            
-            add_user(user_data)
-            person = db["User"].find_one({"email": request.json["email"]})
-            access_token, refresh_token = create_new_token(str(person["_id"]))
-            db["User"].update_one({"_id" : person["_id"]}, {"$set": {"refreshToken": refresh_token}})
-            person = db["User"].find_one({"_id": person["_id"]})
-            del person["password"]
-            return json_util.dumps({"user" : user_data, "accessToken": access_token, "refreshToken": refresh_token}), 201
-    return jsonify({"message": "bad inputs"}), 400
+    try:
+        if check_inputs(request.json):
+            if check_email(request.json) == False:
+                hashed_password = crypter.encrypt(request.json["password"].encode())
+                user_data = {
+                
+                            "name" : request.json["name"],
+                            "email": request.json["email"],
+                            "password": hashed_password.decode(), #hashed
+                            "admin": False,
+                            "ban": False,
+                            "token": str(uuid.uuid4()),#for reset passworf,
+                            "refreshToken": ""
+                            }
+                
+                db["User"].insert_one(user_data)
+                person = db["User"].find_one({"email": request.json["email"]})
+                access_token, refresh_token = create_new_token(str(person["_id"]))
+                db["User"].update_one({"_id" : person["_id"]}, {"$set": {"refreshToken": refresh_token}})
+                person = db["User"].find_one({"_id": person["_id"]})
+                del person["password"]
+                return json_util.dumps({"user" : user_data, "accessToken": access_token, "refreshToken": refresh_token}), 201
+    except:
+        return jsonify({"message": "invalid request"}), 400
+    return jsonify({"message": "name, email, and or password field is missing"}), 400
 
 
 #THIS SHIT IS MESSY ASF FIX IT LATER
@@ -152,10 +152,7 @@ def users(user_id):
         auth_token = request.headers.get("Authorization").split("Bearer ")[1]
     except:
         return {"message": "authorization header missing"}, 401
-    
-
-    result = decode_token(auth_token)
-
+    result = decode_token(auth_token) #this is that one function
 
     #RIGHT HERE IF YOU DFONT SEE THIS SHIT
     try:
@@ -166,27 +163,27 @@ def users(user_id):
                 del user_data["password"]
                 return json_util.dumps(user_data)
             else:
-                return jsonify({"message": "id dont match"})
+                return jsonify({"message": "id dont match"}), 401
         else:
-            return result
+            return result #call that one function that check token and returns message
     except:
-        return jsonify({"message": "bad id inside token"})
+        return jsonify({"message": "bad id inside token"}), 401
 
 @app.route("/login", methods=["POST"])
 def login():
     body = request.json
-
-    account = search_db({"email": body["email"]})
-    if account != None:
-        request_password = crypter.decrypt(account["password"].encode()).decode()
-        #FIX THIS RAW PASSWORD IS EXPOSED
-        if request_password == body["password"]:
-            account = search_db({"email": body["email"]})
-
-
-            response = {"user": account, "accessToken": create_new_token(str(account["_id"]))[0]}
-            del response['user']["password"]
-            return json_util.dumps(response), 201
+    try:
+        account = db["User"].find_one({"email": body["email"]})
+        if account != None:
+            request_password = crypter.decrypt(account["password"].encode()).decode()
+            #FIX THIS RAW PASSWORD IS EXPOSED
+            if request_password == body["password"]:
+                account = db["User"].find_one({"email": body["email"]})
+                response = {"user": account, "accessToken": create_new_token(str(account["_id"]))[0]}
+                del response['user']["password"]
+                return json_util.dumps(response), 201
+    except:
+        return jsonify({"message": "invalid request"}), 400
     return jsonify({"message": "invalid login"}), 401
 
 #SEE HOW THIS WILL WORK WITH POST OR SMMTHING
@@ -200,18 +197,21 @@ def refresh():
     try:
         jwt.decode(re_token, refresh_key, algorithms=["HS256"])
     except:
-        return jsonify({"message": "invalid token"})
+        return jsonify({"message": "invalid token"}), 401
 
     try:
         search = db["User"].find_one({"refreshToken": re_token})
     except:
         return jsonify({"error": "refreshToken attribute does not exist"}), 401
-    if search != None:
-        access, refresh = create_new_token(str(search["_id"]))
-        db["User"].update_one({"_id": search["_id"]},{"$set": {"refreshToken": refresh}})
-        response = db["User"].find_one({"_id": search["_id"]})
-        del response["password"]
-        return json_util.dumps({"user" : response, "refreshToken": refresh, "accessToken": access}), 200
+    try:
+        if search != None:
+            access, refresh = create_new_token(str(search["_id"]))
+            db["User"].update_one({"_id": search["_id"]},{"$set": {"refreshToken": refresh}})
+            response = db["User"].find_one({"_id": search["_id"]})
+            del response["password"]
+            return json_util.dumps({"user" : response, "refreshToken": refresh, "accessToken": access}), 200
+    except:
+        return jsonify({"message" : "invalid request"}), 401
     return jsonify({"message": "could not find user"}), 401
 
 @app.route("/forgot", methods=["POST"])
@@ -228,18 +228,15 @@ def forgot():
 @app.route("/reset", methods=["POST"])
 def reset():
     post = request.json
-    #ERROR OCCURING HERE
-    #ERROR: unhashable type: 'dict'
-    password = crypter.encrypt(post["newPassword"].encode()).decode()
-
     try:
-        
-        user = db["User"].find_one({"token": post["token"]})
-        if user != None:
-            new_token = str(uuid.uuid4())
-            db["User"].update_one({"_id": user["_id"]}, {"$set": {"password": password}})
-            db["User"].update_one({"_id": user["_id"]}, {"$set": {"token": new_token}})
-            return jsonify({"message": "password changed!"}), 200
+        if post['newPassword'] != "":
+            password = crypter.encrypt(post["newPassword"].encode()).decode()    
+            user = db["User"].find_one({"token": post["token"]})
+            if user != None:
+                new_token = str(uuid.uuid4())
+                db["User"].update_one({"_id": user["_id"]}, {"$set": {"password": password}})
+                db["User"].update_one({"_id": user["_id"]}, {"$set": {"token": new_token}})
+                return jsonify({"message": "password changed!"}), 200
     except Exception as e:
         print(e)
     
